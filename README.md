@@ -57,7 +57,7 @@ If the mode is N and a next POS predictor model file is found, it loads the mode
 
 #### Sample usage
 ```
-$ python NeuralParser.py --sentences sentences.txt --epochs 20 --mode N --adjoin --output outfile.txt
+$ python NeuralParser.py --sentences sentences.txt --epochs 20 --mode N --adjoin --output outfile.txt```
 
 
 ### Evaluation
