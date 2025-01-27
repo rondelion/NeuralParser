@@ -1,0 +1,16 @@
+{
+    "cell_num": 30,
+    "alpha": 0.1,
+    "threshold": 0.00,
+    "predefined_divider": 100,
+    "wm_size": 50,
+    "next_pos_predictor": {
+        "hidden_dim": 10,
+        "loss_func": "nn.CrossEntropyLoss()",
+        "activation_func": "nn.Softmax(dim=0)"
+    },
+    "cboc_predictor": {
+        "hidden_dim": 10,
+        "loss_func": "nn.MSELoss()"
+    }
+}

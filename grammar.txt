@@ -1,0 +1,15 @@
+S : NP + VP
+NP : Det + N1
+N1 : Adj + N1
+N1 : N
+NP : PN
+VP : Adv + VP
+VP : IV
+VP : TV + NP
+Det - le, un
+N - n1, n2, n3
+PN - Pn1, Pn2, Pn3
+Adj - aj1, aj2, aj3
+Adv - av1, av2, av3
+IV - iv1, iv2, iv3
+TV - tv1, tv2, tv3
