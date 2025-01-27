@@ -376,18 +376,15 @@ def insert_non_terminal(x):
 def main():
     parser = argparse.ArgumentParser(description='Sentence parser')
     parser.add_argument('--sentences', default="sentences.txt", help='sentence file path')
-    parser.add_argument('--iteration', type=int, default=1, metavar='N', help='iteration (default: 1)')
+    parser.add_argument('--grammar', default="grammar.txt", help='grammar file path')
     parser.add_argument('--config', type=str, default='NeuralParser.json', metavar='N',
                         help='Configuration (default: NeuralParser.json')
     parser.add_argument('--epochs', type=int, default=1, metavar='N',
                         help='Number of training epochs (default: 1)')
-    parser.add_argument('--log-interval', type=int, default=10, metavar='N',
-                        help='how many batches to wait before logging training status')
-    parser.add_argument('--mode', help='O:bigram occ., P: bigram prob.: N:neural, R: random')
-    parser.add_argument('--grammar', default="grammar.txt", help='grammar file path')
+    parser.add_argument('--mode', help='O:bigram occ., P: bigram prob., N:neural, R: random')
     parser.add_argument('--next_pos', default="next_pos.pt", help='next pos predictor model file')
     parser.add_argument('--cboc', default="cboc.pt", help='cboc predictor model file')
-    parser.add_argument('--bigram', default="bigram.txt", help='B:bigram, N:neural')
+    parser.add_argument('--bigram', default="bigram.txt", help='statistics file')
     parser.add_argument('--adjoin', action='store_true', help='Specify iff you want adjoin input to output')
     parser.add_argument('--output', help='output file')
 
