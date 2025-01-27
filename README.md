@@ -59,6 +59,7 @@ If the mode is N and a next POS predictor model file is found, it loads the mode
 ```
 $ python NeuralParser.py --sentences sentences.txt --epochs 20 --mode N --adjoin --output outfile.txt
 
+
 ### Evaluation
 
 You can use an edit distance tool such as [apted](https://pypi.org/project/apted/) for evaluation.  
