@@ -14,7 +14,8 @@ from SimplePredictor import SimplePredictor
 
 
 class POSSequence(IterableDataset):
-    def __init__(self, sentence_file, lexicon):
+    def __init__(self, sentence_file, lexicon, shuffle=False):
+        import random
         super().__init__()
         self.lexicon = lexicon
         self.vector_size = len(lexicon.pos2idx)
@@ -24,27 +25,30 @@ class POSSequence(IterableDataset):
         self.eos_vector[self.eos_idx] = 1.0
         self.bos_vector = np.zeros(self.vector_size, dtype=np.float32)
         self.bos_vector[self.bos_idx] = 1.0
+        self.ones = np.ones(self.vector_size, dtype=np.float32)
         if os.path.isfile(sentence_file):
-            self.sentence_file = sentence_file
+            with open(sentence_file) as f:
+                self.sentences = f.readlines()
+            if shuffle:
+                random.shuffle(self.sentences)
         else:
             print("Sentence file " + "'" + sentence_file + "' is not found!")
             exit(-1)
 
     def __iter__(self):
-        with open(self.sentence_file, 'r') as f:
-            for sentence in f:
-                sentence = sentence.replace('{', ' ').replace('}', ' ')
-                words = sentence.split()
-                wc = len(words)
-                yield 'BOS', self.bos_idx, self.bos_vector
-                for i in range(wc):
-                    word = words[i].strip()
-                    pos = self.lexicon.word2pos[word]
-                    pos_vector = np.zeros(self.vector_size, dtype=np.float32)
-                    pos_idx = self.lexicon.pos2idx[pos]
-                    pos_vector[pos_idx] = 1.0
-                    yield pos, pos_idx, pos_vector
-                yield 'EOS', self.eos_idx, self.eos_vector
+        for sentence in self.sentences:
+            sentence = sentence.rstrip().replace('{', ' ').replace('}', ' ')
+            words = sentence.split()
+            wc = len(words)
+            yield 'BOS', self.bos_idx, self.bos_vector, self.ones
+            for i in range(wc):
+                word = words[i].strip()
+                pos = self.lexicon.word2pos[word]
+                pos_vector = np.zeros(self.vector_size, dtype=np.float32)
+                pos_idx = self.lexicon.pos2idx[pos]
+                pos_vector[pos_idx] = 1.0
+                yield pos, pos_idx, pos_vector, self.ones
+            yield 'EOS', self.eos_idx, self.eos_vector, self.ones
 
 
 class NetworkMemory:
@@ -96,12 +100,20 @@ class SecondLayer:
         self.lexicon = lexicon
         self.pos_num = len(lexicon.pos2idx)
         self.unigram_size = self.pos_num
-        if config['mode'] == "N":
+        if config['mode'] == "NP" or config['mode'] == "D":
             config['next_pos_predictor']['input_dim'] = self.unigram_size
             config['next_pos_predictor']['output_dim'] = self.unigram_size
             config['next_pos_predictor']['hidden_dim'] = self.unigram_size
             self.next_pos_predictor = SimplePredictor(config['next_pos_predictor'])
-        elif config['mode'] == "O" or config['mode'] == "P":
+        if config['mode'] == "NO" or config['mode'] == "D":
+            config['bigram_predictor']['input_dim'] = self.unigram_size
+            config['bigram_predictor']['output_dim'] = self.unigram_size * self.unigram_size
+            config['bigram_predictor']['hidden_dim'] = self.unigram_size * 2
+            self.bigram_ensemble = config['bigram_predictor']['ensemble']
+            self.bigram_predictor = {}
+            for i in range(self.bigram_ensemble):
+                self.bigram_predictor[i] = SimplePredictor(config['bigram_predictor'])
+        if config['mode'] == "O" or config['mode'] == "P" or config['mode'] == "D":
             self.bigram = {}
         self.mode = config['mode']
         config['cboc_predictor']['input_dim'] = self.unigram_size * 2
@@ -137,15 +149,23 @@ class SecondLayer:
         self.POS_list = []
         self.POS_list2 = []
 
-    def train(self, data_loader, loaded_next_pos_model, loaded_cboc_model):
+    def train(self, data_loader, loaded_next_pos_model, loaded_cboc_model, loaded_bigram_model):
         next_pos_predictor_loss_sum = 0.0
         cboc_predictor_loss_sum = 0.0
+        bigram_predictor_loss_sum = 0.0
         cnt = 0
-        for pos, pos_idx, current in data_loader:
+        for pos, pos_idx, current, ones in data_loader:
             pos_str = pos[0]
-            if self.mode == "N" and not loaded_next_pos_model:
+            if self.mode == "NP" and not loaded_next_pos_model:
                 if pos_str != "BOS" and self.prev_pos != "BOS" and pos_str != "EOS":
                     next_pos_predictor_loss_sum += self.next_pos_predictor.learn(self.prev, current)
+            if self.mode == "NO" and not loaded_bigram_model:
+                if pos_str != "BOS" and self.prev_pos != "BOS" and pos_str != "EOS":
+                    bigram_predictor_loss = 0.0
+                    for i in range(self.bigram_ensemble):
+                        bigram = torch.flatten(torch.reshape(self.prev, tuple([1, self.prev.numel(), 1])) * current, 1)
+                        bigram_predictor_loss += self.bigram_predictor[i].learn(ones, bigram)
+                    bigram_predictor_loss_sum += bigram_predictor_loss / self.bigram_ensemble
             if not loaded_cboc_model:
                 if self.prev_prev_pos is not None:
                     context = torch.cat((self.prev_prev, current), 1)
@@ -156,8 +176,10 @@ class SecondLayer:
             self.prev_pos_idx = pos_idx
             self.prev = current
             cnt += 1
-        if not loaded_next_pos_model:
+        if self.mode == "NP" and not loaded_next_pos_model:
             print("next_pos_predictor_loss", next_pos_predictor_loss_sum / cnt)
+        if self.mode == "NO" and not loaded_bigram_model:
+            print("bigrams_predictor_loss", bigram_predictor_loss_sum / cnt)
         if not loaded_cboc_model:
             print("cboc_predictor_loss", cboc_predictor_loss_sum / cnt)
 
@@ -182,14 +204,28 @@ class SecondLayer:
         tail_pos = self.lexicon.idx2pos[np.argmax(tail)]
         if head_pos == "BOS" or tail_pos == "EOS":
             return 0.0
-        if self.mode == "N":
+        if self.mode == "NP":
             head = head.astype(np.float32)
             prediction = self.next_pos_predictor.predictor(torch.from_numpy(head).clone()).cpu().detach().numpy().copy()
             return np.dot(prediction, tail)
+        if self.mode == "NO":
+            ones = np.ones(self.unigram_size).astype(np.float32)
+            bigram = self.bigram_vector(head, tail)
+            dot = 0.0
+            for i in range(self.bigram_ensemble):
+                prediction = self.bigram_predictor[i]\
+                    .predictor(torch.from_numpy(ones).clone()).cpu().detach().numpy().copy()
+                dot += np.dot(prediction, bigram)
+            return dot / self.bigram_ensemble
         elif self.mode == "O" or self.mode == "P":
             return self.bigram_prob(head, tail)
         elif self.mode == "R":
             return self.rng.random()
+
+    def bigram_vector(self, head, tail):
+        bigram = np.zeros((self.unigram_size, self.unigram_size), dtype=np.float32)
+        bigram[np.argmax(head), np.argmax(tail)] = 1.0
+        return bigram.flatten()
 
     def bigram_prob(self, head, tail):
         head_pos = self.lexicon.idx2pos[np.argmax(head)]
@@ -243,18 +279,33 @@ class SecondLayer:
                 self.nm.activation[i] = 0.0
                 self.nm.activation[prev_i] = 0.0
 
-    def inspect_next_pos_predictor(self):
-        size = len(self.lexicon.pos2idx)
-        for i in range(size):
-            for j in range(size):
-                head = np.zeros(size).astype(np.float32)
-                head[i] = 1
-                tail = np.zeros(size)
-                tail[j] = 1
+    def dump_next_pos_predictor(self, out_f):
+        for key in self.bigram:
+            if ":" in key:
+                buf = key.split(":")
+                head_pos = buf[0]
+                head = np.zeros(len(self.lexicon.pos2idx)).astype(np.float32)
+                head[self.lexicon.pos2idx[head_pos]] = 1.0
+                tail_pos = buf[1]
+                tail = np.zeros(len(self.lexicon.pos2idx)).astype(np.float32)
+                tail[self.lexicon.pos2idx[tail_pos]] = 1.0
                 prediction = self.next_pos_predictor.predictor(
                     torch.from_numpy(head).clone()).cpu().detach().numpy().copy()
-                dot = np.dot(prediction, tail)
-                print(self.lexicon.idx2pos[i], self.lexicon.idx2pos[j], dot)
+                dot_NP = np.dot(prediction, tail)
+                dot_NO = 0.0
+                ones = np.ones(self.unigram_size).astype(np.float32)
+                bigram = self.bigram_vector(head, tail)
+                for i in range(self.bigram_ensemble):
+                    prediction = self.bigram_predictor[i] \
+                        .predictor(torch.from_numpy(ones).clone()).cpu().detach().numpy().copy()
+                    dot_NO += np.dot(prediction, bigram)
+                dot_NO /= self.bigram_ensemble
+                bigram_count = self.bigram.get(key, 0)
+                out_f.write("{0}\t{1}\t{2:.3f}\t{3:.3f}\t{4:.3f}\t{5:.3f}\n".format(head_pos, tail_pos,
+                                                                           bigram_count / self.bigram['Total'],
+                                                                           bigram_count / self.bigram[head_pos],
+                                                                           dot_NP,
+                                                                           dot_NO))
 
     def dump_parses(self, f, idx):
         while True:
@@ -381,11 +432,13 @@ def main():
                         help='Configuration (default: NeuralParser.json')
     parser.add_argument('--epochs', type=int, default=1, metavar='N',
                         help='Number of training epochs (default: 1)')
-    parser.add_argument('--mode', help='O:bigram occ., P: bigram prob., N:neural, R: random')
+    parser.add_argument('--mode', help='O:bigram occ., P:POS bigram, NP:Neural next POS, NO:Neural bigram, R:random')
     parser.add_argument('--next_pos', default="next_pos.pt", help='next pos predictor model file')
+    parser.add_argument('--bigram_model', default="bigram.pt", help='bigram predictor model file')
     parser.add_argument('--cboc', default="cboc.pt", help='cboc predictor model file')
     parser.add_argument('--bigram', default="bigram.txt", help='statistics file')
     parser.add_argument('--adjoin', action='store_true', help='Specify iff you want adjoin input to output')
+    parser.add_argument('--non_apted', action='store_true', help='Specify iff you do not want the apted output format')
     parser.add_argument('--output', help='output file')
 
     args = parser.parse_args()
@@ -402,41 +455,63 @@ def main():
         print("Grammar file " + "'" + args.grammar + "' is not found!")
         exit(-1)
 
-    dataset = POSSequence(args.sentences, lexicon)
-    data_loader = torch.utils.data.DataLoader(dataset)
-
     sl = SecondLayer(config, lexicon)
 
     loaded_next_pos_model = False
-    if args.mode == "N":
+    if args.mode == "NP" or args.mode == "D":
         if os.path.isfile(args.next_pos):
             print("Loading next pos model: " + args.next_pos)
             sl.next_pos_predictor.predictor.load_state_dict(torch.load(args.next_pos, weights_only=True))
             loaded_next_pos_model = True
-    elif args.mode == "O" or args.mode == "P":
+    loaded_bigram_model = False
+    if args.mode == "NO" or args.mode == "D":
+        if os.path.isfile(args.bigram_model):
+            print("Loading bigram model: " + args.bigram_model)
+            checkpoint = torch.load(args.bigram_model)
+            for i in range(config['bigram_predictor']['ensemble']):
+                sl.bigram_predictor[i].predictor.load_state_dict(checkpoint["model{}".format(i)])
+            loaded_bigram_model = True
+    if args.mode == "O" or args.mode == "P" or args.mode == "D":
         sl.load_bigram(args.bigram)
         loaded_next_pos_model = True
-    elif args.mode == "R":
-        pass
-    else:
+    if args.mode not in "NOPRD":
         print('No mode specified!', file=sys.stderr)
         exit(-1)
 
     loaded_cboc_model = False
-    if os.path.isfile(args.cboc):
+    if args.mode != "D" and os.path.isfile(args.cboc):
         print("Loading CBOC model: " + args.cboc)
         sl.cboc_predictor.predictor.load_state_dict(torch.load(args.cboc, weights_only=True))
         loaded_cboc_model = True
 
-    # Training Mode
-    if not ((loaded_next_pos_model or args.mode == "R") and loaded_cboc_model):
-        for epoch in range(args.epochs):
-            print('epoch:', epoch + 1)
-            sl.train(data_loader, loaded_next_pos_model, loaded_cboc_model)
+    import io
+    out_f = open(args.output, mode='w') if args.output is not None else sys.stdout
 
-    if args.mode == "N" and not loaded_next_pos_model:
+    if args.mode == "D":
+        sl.dump_next_pos_predictor(out_f)
+        out_f.close()
+        exit(0)
+
+    # Training Mode
+    if not ((loaded_next_pos_model or loaded_bigram_model or args.mode == "R") and loaded_cboc_model):
+        for epoch in range(args.epochs):
+            dataset = POSSequence(args.sentences, lexicon, shuffle=True)
+            data_loader = torch.utils.data.DataLoader(dataset)
+            print('epoch:', epoch + 1)
+            sl.train(data_loader, loaded_next_pos_model, loaded_cboc_model, loaded_bigram_model)
+
+    if args.mode == "NP" and not loaded_next_pos_model:
         print("Saving next pos model: " + args.next_pos)
         torch.save(sl.next_pos_predictor.predictor.state_dict(), args.next_pos)
+
+    if args.mode == "NO" and not loaded_bigram_model:
+        print("Saving bigram model: " + args.bigram_model)
+        save_func_str = "torch.save({"
+        for i in range(config['bigram_predictor']['ensemble']):
+            save_func_str += "\'model{0}\':sl.bigram_predictor[{0}].predictor.state_dict(),".format(i)
+        save_func_str += "}, args.bigram_model)"
+        eval(save_func_str)
+        # torch.save(sl.bigram_predictor.predictor.state_dict(), args.bigram_model)
 
     if not loaded_cboc_model:
         print("Saving CBOC model: " + args.cboc)
@@ -446,11 +521,11 @@ def main():
         with open(args.sentences) as f:
             lines = f.readlines()
 
-    import io
-    out_f = open(args.output, mode='w') if args.output is not None else sys.stdout
     # Parse Mode
+    dataset = POSSequence(args.sentences, lexicon, shuffle=False)
+    data_loader = torch.utils.data.DataLoader(dataset)
     counter = 0
-    for pos, pos_idx, pos_vector in data_loader:
+    for pos, pos_idx, pos_vector, ones in data_loader:
         pos = pos[0]
         pos_vector = pos_vector[0].cpu().detach().numpy().copy()
         sl.read_a_pos(pos, pos_vector)
@@ -459,12 +534,18 @@ def main():
             io_object = io.StringIO()
             sl.dump_parses(io_object, sl.init)
             if args.adjoin:
-                out_f.write(insert_non_terminal(io_object.getvalue()) + '\t'
-                            + insert_non_terminal(replace2categories(lines[counter], lexicon)) + '\n')
+                if args.non_apted:
+                    out_f.write(io_object.getvalue() + '\t'
+                                + replace2categories(lines[counter], lexicon) + '\n')
+                else:
+                    out_f.write(insert_non_terminal(io_object.getvalue()) + '\t'
+                                + insert_non_terminal(replace2categories(lines[counter], lexicon)) + '\n')
             else:
                 out_f.write(io_object.getvalue() + '\n')
             sl.eos()
             counter += 1
+
+    out_f.close()
 
 
 if __name__ == '__main__':

@@ -18,7 +18,7 @@ It parses a sequence of parts of speech into a tree.
 ### Preparation
 * Write a context free grammar (see [the sample](https://github.com/rondelion/NeuralParser/blob/main/grammar.txt)).
 * Generate a sentence file (for training) with __`SentenceGenerator.py`__ and the grammar file.
-* Generate a statistics file for the modes P and O of NeuralParser (optional).
+* Generate a statistics file for the modes P, O and D of NeuralParser  with __`Bigram.py`__ and the sentence file (optional).
 * Generate sentence files for testing (optional).
 
 ### Running __`NeuralParser.py`__
@@ -28,18 +28,22 @@ It parses a sequence of parts of speech into a tree.
       --config: configuration file
       --epochs: training epochs
       --mode:  N:neural, O:bigram occ., P: bigram prob., R: random (parse mode: see below)
+      --bigram_model: bigram predictor model file
       --next_pos: next pos predictor model file
       --cboc: cboc predictor model file
       --bigram: statistics file
-      --adjoin: adjoins input sentences to the output parse if specified
+      --adjoin: to adjoin input sentences to the output parse if specified
+      --non_apted: non apted format for output
       --output: output file (stdio if not specified)
 
 #### Parse modes
 
-     N: Neural: uses a neural next POS predictor in parsing.  
      O: bigram Occurrence: uses bigram occurrences in parsing (it uses the statics file).  
      P: bigram Probability: uses bigram conditional probabilities in parsing (it uses the statics file).  
+     NO: Neural bigram Occurence predictor in parsing.  
+     NP: Neural next POS predictor in parsing.  
      R: Random: uses random values in parsing.
+     D: Dumps O,P,NP,NO values for bigrams
       
 #### Training and model files
 
@@ -48,9 +52,10 @@ NeuralParser uses two neural models.
 - __CBOC (Continuous Bag of Categories) model__: it is like the CBOW model in Word2Vec.  It uses parts of speech (POS) instead of words.  It is required in all the modes above.  
 If no CBOC file is found, then the program trains the CBOC model with the given sentence file and epochs, and save it to a file.  
 If a CBOC file is found, it loads the model from the file.
-- __Next POS predictor model__: it predicts the next part of speech (POS).  It is required for the mode N.  
-If the mode is N and no next POS predictor model file is found, then the program trains the model with the given sentence file and epochs, and save it to a file.  
-If the mode is N and a next POS predictor model file is found, it loads the model from the file.
+- __Bigram predictor model__: it predicts bigram occurence (probability).  It is required for the mode NO.  
+If the mode is NO and no bigram predictor model file is found, then the program trains the model with the given sentence file and epochs, and save it to a file.  If the mode is NO and a bigram predictor model file is found, it loads the model from the file.
+- __Next POS predictor model__: it predicts the next part of speech (POS).  It is required for the mode NP.  
+If the mode is NP and no next POS predictor model file is found, then the program trains the model with the given sentence file and epochs, and save it to a file.  If the mode is NP and a next POS predictor model file is found, it loads the model from the file.
 
 
 
