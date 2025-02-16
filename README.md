@@ -27,7 +27,7 @@ It parses a sequence of parts of speech into a tree.
       --grammar: grammar file
       --config: configuration file
       --epochs: training epochs
-      --mode:  N:neural, O:bigram occ., P: bigram prob., R: random (parse mode: see below)
+      --mode: O:bigram occ., P:POS bigram, NP:Neural next POS, NO:Neural bigram, R:random (parse mode: see below)
       --bigram_model: bigram predictor model file
       --next_pos: next pos predictor model file
       --cboc: cboc predictor model file
@@ -61,8 +61,9 @@ If the mode is NP and no next POS predictor model file is found, then the progra
 
 
 #### Sample usage
+P mode is recommended.
 ```
-$ python NeuralParser.py --sentences sentences.txt --epochs 20 --mode N --adjoin --output outfile.txt
+$ python NeuralParser.py --sentences sentences.txt --epochs 20 --mode P --adjoin --output outfile.txt
 ```
 
 

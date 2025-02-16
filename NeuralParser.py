@@ -432,7 +432,8 @@ def main():
                         help='Configuration (default: NeuralParser.json')
     parser.add_argument('--epochs', type=int, default=1, metavar='N',
                         help='Number of training epochs (default: 1)')
-    parser.add_argument('--mode', help='O:bigram occ., P:POS bigram, NP:Neural next POS, NO:Neural bigram, R:random')
+    parser.add_argument('--mode', choices=['O', 'P', 'NP', 'NO', 'R', 'D'],
+                        help='O:bigram occ., P:POS bigram, NP:Neural next POS, NO:Neural bigram, R:random')
     parser.add_argument('--next_pos', default="next_pos.pt", help='next pos predictor model file')
     parser.add_argument('--bigram_model', default="bigram.pt", help='bigram predictor model file')
     parser.add_argument('--cboc', default="cboc.pt", help='cboc predictor model file')
@@ -474,9 +475,6 @@ def main():
     if args.mode == "O" or args.mode == "P" or args.mode == "D":
         sl.load_bigram(args.bigram)
         loaded_next_pos_model = True
-    if args.mode not in "NOPRD":
-        print('No mode specified!', file=sys.stderr)
-        exit(-1)
 
     loaded_cboc_model = False
     if args.mode != "D" and os.path.isfile(args.cboc):

@@ -1,9 +1,9 @@
 S : NP + VP
 NP : Det + N1
-N1 : Adj + N1
+N1 : Adj + N1	0.2
 N1 : N
 NP : PN
-VP : Adv + VP
+VP : Adv + VP	0.2
 VP : IV
 VP : TV + NP
 Det - le, un
